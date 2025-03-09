@@ -358,7 +358,7 @@ model = dict(
 )
 
 dataset_type = "VADCustomNuScenesDataset"
-data_root = "data/nuscenes/"
+data_root = "nuscenes/"
 file_client_args = dict(backend="disk")
 
 train_pipeline = [
@@ -472,7 +472,7 @@ data = dict(
         type=dataset_type,
         data_root=data_root,
         pc_range=point_cloud_range,
-        ann_file=data_root + "../" + "vad_nuscenes_infos_temporal_our_ncap_val.pkl",
+        ann_file=data_root + "vad_nuscenes_infos_temporal_val.pkl",
         pipeline=test_pipeline,
         bev_size=(bev_h_, bev_w_),
         classes=class_names,
@@ -489,7 +489,7 @@ data = dict(
         type=dataset_type,
         data_root=data_root,
         pc_range=point_cloud_range,
-        ann_file=data_root + "../" + "vad_nuscenes_infos_temporal_our_ncap_val.pkl",
+        ann_file=data_root + "vad_nuscenes_infos_temporal_val.pkl",
         pipeline=test_pipeline,
         bev_size=(bev_h_, bev_w_),
         classes=class_names,

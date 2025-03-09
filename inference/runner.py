@@ -68,6 +68,7 @@ class VADAuxOutputs:
         List[List[List[float]]]
     ] = None  # bev_h (200), bev_w (200), 2 (x & y)
     future_trajs: Optional[List[List[List[List[float]]]]] = None  # (N, 6, 6, 2)
+    object_ids: Optional[List[int]] = None  # (N, )
 
     def to_json(self) -> dict:
         return dict(
@@ -76,7 +77,18 @@ class VADAuxOutputs:
             object_scores=self.object_scores,
             segmentation=self.segmentation,
             seg_grid_centers=self.seg_grid_centers,
+            object_ids=self.object_ids,
             future_trajs=self.future_trajs,
+        )
+        
+    @classmethod
+    def empty(cls) -> "VADAuxOutputs":
+        return cls(
+            objects_in_bev=np.zeros((0, 5)),
+            object_classes=[],
+            object_scores=np.zeros((0, 1)),
+            object_ids=np.zeros((0, 1)),
+            future_trajs=np.zeros((0, 6, 12, 2)),
         )
 
 
@@ -421,19 +433,30 @@ class VADRunner:
                 self.classes[i] for i in bbox_results[0]["labels_3d"][score_mask]
             ]
             future_trajs = future_trajs[score_mask].cpu().numpy()
-
-        return VADInferenceOutput(
-            trajectory=trajectory,
-            aux_outputs=VADAuxOutputs(
+            
+        aux_outputs = VADAuxOutputs(
                 objects_in_bev=objects_in_bev.tolist(),
                 object_scores=object_scores.tolist(),
                 object_classes=object_classes,
                 segmentation=occ_mask[0, 0, 0].tolist()
                 if occ_mask is not None
                 else None,  # bev_h, bev_w
+                object_ids=[i for i in range(len(object_classes))],
                 seg_grid_centers=seg_grid_centers,  # bev_h, bev_w, 2 [x, y]
                 future_trajs=future_trajs.tolist(),  # N x 6 modes x 6 future_timesteps x 2 (x, y)
-            ),
+            )
+        # print the aux shapes of stuff
+        print("objects_in_bev", np.shape(aux_outputs.objects_in_bev))
+        print("object_scores", np.shape(aux_outputs.object_scores))
+        print("object_classes", np.shape(aux_outputs.object_classes))
+        print("object ids", np.shape(aux_outputs.object_ids))
+        print("segmentation", np.shape(aux_outputs.segmentation))
+        print("seg_grid_centers", np.shape(aux_outputs.seg_grid_centers))
+        print("future_trajs", np.shape(aux_outputs.future_trajs))
+
+        return VADInferenceOutput(
+            trajectory=trajectory,
+            aux_outputs=aux_outputs,
         )
 
 
@@ -556,9 +579,10 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     runner = VADRunner(
-        config_path="/VAD/projects/configs/VAD/VAD_inference.py",
-        checkpoint_path="/VAD/ckpts/VAD_base.pth",
+        config_path="projects/configs/VAD/VAD_inference.py",
+        checkpoint_path="checkpoints/VAD_base.pth",
         device=torch.device(device),
+        use_col_optim=True
     )
 
     # only load this for testing
@@ -566,17 +590,25 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from nuscenes.can_bus.can_bus_api import NuScenesCanBus
     from nuscenes.nuscenes import NuScenes
+    import os
+    import os.path as osp
+    
+    # ensure the nuscenes data is available
+    dataroot = "/VAD/nuscenes"
+    version = "v1.0-mini" # "v1.0-trainval"
+    table_root = osp.join(dataroot, version)
+    assert osp.exists(table_root), 'Database version not found: {}'.format(table_root)
 
     # load the first surround-cam in nusc mini
-    nusc = NuScenes(version="v1.0-mini", dataroot="./data/nuscenes")
-    nusc_can = NuScenesCanBus(dataroot="./data/nuscenes")
-    scene_name = "scene-0103"
+    nusc = NuScenes(version=version, dataroot=dataroot, verbose=True)
+    nusc_can = NuScenesCanBus(dataroot=dataroot)
+    scene_name = "scene-0103" # 'scene-0923', 'scene-0783'
     scene = [s for s in nusc.scene if s["name"] == scene_name][0]
     # get the first sample in the scene
     sample = nusc.get("sample", scene["first_sample_token"])
 
     for i in range(60):
-        inference_input = _get_sample_input(nusc, nusc_can, scene_name, sample)
+        inference_input: VADInferenceInput = _get_sample_input(nusc, nusc_can, scene_name, sample)
         if i > 4:
             inference_input.command = 2  # straight
         plan = runner.forward_inference(inference_input)
@@ -584,6 +616,11 @@ if __name__ == "__main__":
         fig, ax = plt.subplots(1, 2)
         ax[0].imshow(inference_input.imgs[0])
         ax[0].axis("off")
+        
+        ax[1].plot(plan.trajectory[:, 0], plan.trajectory[:, 1], "r-*")
+        ax[1].set_aspect("equal")
+        ax[1].set_xlabel("x (m)")
+        ax[1].set_ylabel("y (m)")
 
         # save fig
         fig.savefig(f"{scene_name}_{str(i).zfill(3)}_{sample['timestamp']}.png")
@@ -591,3 +628,24 @@ if __name__ == "__main__":
         if sample["next"] == "":
             break
         sample = nusc.get("sample", sample["next"])
+
+
+# for launching with salloc
+# salloc --gres=gpu:rtx8000:1 --mem 32G  --time 02:00:00
+
+# now run runner.py demo
+# singularity exec --nv --bind /home/mila/d/deschaer/scratch/neuro_ncap_workspace/VAD:/VAD --bind /home/mila/d/deschaer/scratch/nuscenes/:/VAD/nuscenes  --pwd /VAD --env PYTHONPATH=. vad.sif python -u inference/runner.py 
+
+# regenerate the nuscene info files
+# singularity exec --nv --bind /home/mila/d/deschaer/scratch/neuro_ncap_workspace/VAD:/VAD --bind /home/mila/d/deschaer/scratch/nuscenes/:/VAD/nuscenes  --pwd /VAD --env PYTHONPATH=. vad.sif python tools/data_converter/vad_nuscenes_converter.py nuscenes --root-path ./nuscenes --out-dir ./nuscenes --extra-tag vad_nuscenes --version v1.0 --canbus ./nuscenes/
+
+# run VAD eval
+# singularity exec --nv --bind /home/mila/d/deschaer/scratch/neuro_ncap_workspace/VAD:/VAD --bind /home/mila/d/deschaer/scratch/nuscenes/:/VAD/nuscenes  --pwd /VAD --env PYTHONPATH=. vad.sif  python tools/test.py projects/configs/VAD/VAD_inference.py checkpoints/VAD_base.pth --launcher none --eval bbox --tmpdir vad_tmp
+
+
+# things to try
+# - try the VAD inference
+# - compare the inputs and outputs with UniAD
+# - how can we do efficient debugging
+# - save the input stuff sent by the neuroncap and then do debugging
+# - try saving to pkl files (both input and output) all the potentially useful data, make a dummy script, plot everything
