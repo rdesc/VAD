@@ -1,4 +1,5 @@
 import copy
+import pickle
 import uuid
 from dataclasses import dataclass
 from typing import List, Optional
@@ -316,7 +317,6 @@ class VADRunner:
         # TODO: fix preproc to include the image preprocessing as well. this is currently done
         # in mmcv (i.e., numpy) and not torch.
         self.preproc(input)
-
         # we need to emulate the img_metas here in order to run the model.
         img_metas = [
             {
@@ -642,9 +642,10 @@ if __name__ == "__main__":
 # run VAD eval
 # singularity exec --nv --bind /home/mila/d/deschaer/scratch/neuro_ncap_workspace/VAD:/VAD --bind /home/mila/d/deschaer/scratch/nuscenes/:/VAD/nuscenes  --pwd /VAD --env PYTHONPATH=. vad.sif  python tools/test.py projects/configs/VAD/VAD_inference.py checkpoints/VAD_base.pth --launcher none --eval bbox --tmpdir vad_tmp
 
+# run VAD visualization 
+# singularity exec --nv --bind /home/mila/d/deschaer/scratch/neuro_ncap_workspace/VAD:/VAD --bind /home/mila/d/deschaer/scratch/nuscenes/:/VAD/nuscenes  --pwd /VAD --env PYTHONPATH=. vad.sif python tools/analysis_tools/visualization.py --result-path test/VAD_inference/Sun_Mar__9_12_28_40_2025/pts_bbox/results_nusc.pkl --save-path test/VAD_inference/Sun_Mar__9_12_28_40_2025
 
 # things to try
-# - try the VAD inference
 # - compare the inputs and outputs with UniAD
 # - how can we do efficient debugging
 # - save the input stuff sent by the neuroncap and then do debugging

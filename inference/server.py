@@ -1,5 +1,7 @@
 import argparse
 import io
+import os
+import sys
 from typing import Dict, List, Literal, Optional
 
 import numpy as np
@@ -54,6 +56,7 @@ class InferenceAuxOutputs(BaseModel):
         List[List[List[float]]]
     ] = None  # bev_h (200), bev_w (200), 2 (x & y)
     future_trajs: Optional[List[List[List[List[float]]]]] = None  # N x T x [x, y]
+    object_ids: Optional[List[int]] = None  # (N, )
 
 
 class InferenceOutputs(BaseModel):
@@ -94,6 +97,7 @@ def _build_vad_input(data: InferenceInputs) -> VADInferenceInput:
     ego2world = np.array(data.ego2world)
     lidar2ego = np.array(data.calibration.lidar2ego)
     lidar2world = ego2world @ lidar2ego
+    # lidar2world[:3, :3] = lidar2world[:3, :3].T  # FIXME: do we need this?
     lidar2imgs = []
     for cam in NUSCENES_CAM_ORDER:
         ego2cam = np.linalg.inv(np.array(data.calibration.camera2ego[cam]))
@@ -117,8 +121,9 @@ def _pngs_to_numpy(pngs: List[bytes]) -> np.ndarray:
     """Convert a list of png bytes to a numpy array of shape (n, h, w, c)."""
     imgs = []
     for png in pngs:
-        img = Image.open(io.BytesIO(png))
-        imgs.append(np.array(img))
+        # img = Image.open(io.BytesIO(png))
+        img = torch.load(io.BytesIO(png)).clone()
+        imgs.append(img.numpy())
     return np.stack(imgs, axis=0)
 
 
@@ -129,7 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
-    parser.add_argument("--enable_col_optim", action="store_true")
+    parser.add_argument("--disable_col_optim", action="store_true")
 
     args = parser.parse_args()
     device = torch.device(args.device)
@@ -137,7 +142,7 @@ if __name__ == "__main__":
         args.config_path,
         args.checkpoint_path,
         device,
-        use_col_optim=args.enable_col_optim,
+        use_col_optim=not args.disable_col_optim,
     )
 
     uvicorn.run(app, host=args.host, port=args.port)

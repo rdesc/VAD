@@ -48,6 +48,7 @@ RUN git clone --branch v0.17.1 --single-branch https://github.com/open-mmlab/mmd
 WORKDIR /mmdetection3d
 RUN pip install scipy==1.7.3 scikit-image==0.19.3
 RUN pip install --no-cache-dir -v -e .
+RUN pip install similaritymeasures
 
 # Copy to python dist-package foldder
 RUN cp -r /mmdetection3d/mmdet3d /usr/local/lib/python3.8/dist-packages
